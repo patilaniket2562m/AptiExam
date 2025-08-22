@@ -106,36 +106,54 @@ const hardQuestions = [
 // ================== VARIABLES =================
 let shuffledQuestions = [], currentQuestion = 0, score = 0, warnings = 0, timerInterval, globalInterval;
 let timeLeft = 60, globalTime = 1800, answers = [];
-const detailsPage = document.getElementById('detailsPage'), rulesPage = document.getElementById('rulesPage');
-const quizPage = document.getElementById('quizPage'), questionEl = document.getElementById('question');
-const optionsEl = document.getElementById('options'), nextBtn = document.getElementById('nextBtn');
-const submitBtn = document.getElementById('submitBtn'), resultEl = document.getElementById('result');
-const progressBar = document.getElementById('progressBar'), timerEl = document.getElementById('timer');
-const globalTimerEl = document.getElementById('globalTimer'), studentInfo = document.getElementById('studentInfo');
-const reviewDiv = document.getElementById('reviewAnswers'), examTypeSelect = document.getElementById('examType');
-const resumeOverlay = document.getElementById("resumeOverlay"), webcam = document.getElementById("webcam");
-const cameraStatus = document.getElementById("cameraStatus");
-let model;
+let firstFaceDescriptor = null;
+
+const detailsPage = document.getElementById('detailsPage'),
+      rulesPage = document.getElementById('rulesPage'),
+      quizPage = document.getElementById('quizPage'),
+      questionEl = document.getElementById('question'),
+      optionsEl = document.getElementById('options'),
+      nextBtn = document.getElementById('nextBtn'),
+      submitBtn = document.getElementById('submitBtn'),
+      resultEl = document.getElementById('result'),
+      progressBar = document.getElementById('progressBar'),
+      timerEl = document.getElementById('timer'),
+      globalTimerEl = document.getElementById('globalTimer'),
+      studentInfo = document.getElementById('studentInfo'),
+      reviewDiv = document.getElementById('reviewAnswers'),
+      examTypeSelect = document.getElementById('examType'),
+      resumeOverlay = document.getElementById("resumeOverlay"),
+      webcam = document.getElementById("webcam"),
+      cameraStatus = document.getElementById("cameraStatus");
+
+// Face API model
+let faceModelLoaded = false;
 
 // ================== HELPERS =================
 function shuffleArray(array){ return array.sort(()=>Math.random()-0.5); }
 
 // ================== FLOW =================
-function showRules(){
+async function showRules(){
     const name = document.getElementById('name').value.trim();
     const roll = document.getElementById('roll').value.trim();
     const examType = examTypeSelect.value;
     if(!name||!roll||!examType){ alert("Please fill all details and select exam type!"); return; }
+
+    // Capture first photo for identity verification
+    await initCamera(true); // true = capture first photo
+
     localStorage.setItem("studentName", name);
     localStorage.setItem("studentRoll", roll);
     localStorage.setItem("examType", examType);
+
     detailsPage.classList.add("hidden");
     rulesPage.classList.remove("hidden");
 }
 
 async function startExam(){
     await enterFullscreen();
-    rulesPage.classList.add("hidden"); quizPage.classList.remove("hidden");
+    rulesPage.classList.add("hidden"); 
+    quizPage.classList.remove("hidden");
     studentInfo.innerHTML = `<b>${localStorage.getItem("studentName")}</b> (ID: ${localStorage.getItem("studentRoll")}) - <i>${localStorage.getItem("examType").toUpperCase()} Mode</i>`;
     
     let examType = localStorage.getItem("examType");
@@ -145,20 +163,27 @@ async function startExam(){
     
     currentQuestion=0; score=0; answers=[];
     loadQuestion(); tabSecurity(); submitBtn.style.display="block";
-    await initCamera();
+
+    // Start human/identity check loop
+    detectHumanAndFace();
 
     // Global timer
     globalInterval = setInterval(()=>{
-        globalTime--; let m=Math.floor(globalTime/60), s=globalTime%60;
-        globalTimerEl.textContent = `Exam Time: ${m}:${s<10?'0'+s:s}`;
+        globalTime--; 
+        let m=Math.floor(globalTime/60), s=globalTime%60;
+        globalTimerEl.textContent = `Exam Time: ${m<10?'0'+m:m}:${s<10?'0'+s:s}`;
         if(globalTime<=0){ clearInterval(globalInterval); submitTest(); }
     },1000);
 }
 
 function loadQuestion(){
-    clearInterval(timerInterval); timeLeft=60; timerEl.textContent=`Q Time: ${timeLeft}s`;
+    clearInterval(timerInterval); 
+    timeLeft=60; 
+    timerEl.textContent=`Q Time: ${timeLeft}s`;
     timerInterval = setInterval(updateTimer,1000);
-    const q = shuffledQuestions[currentQuestion]; questionEl.textContent = (currentQuestion+1)+". "+q.q;
+
+    const q = shuffledQuestions[currentQuestion]; 
+    questionEl.textContent = (currentQuestion+1)+". "+q.q;
     optionsEl.innerHTML="";
     let optionObjects = q.options.map((opt,i)=>({text:opt,isCorrect:i===q.answer}));
     optionObjects = shuffleArray(optionObjects);
@@ -169,26 +194,38 @@ function loadQuestion(){
         btn.onclick=()=>selectAnswer(btn,optObj.isCorrect);
         optionsEl.appendChild(btn);
     });
-    nextBtn.style.display="none"; progressBar.style.width=((currentQuestion+1)/shuffledQuestions.length)*100+"%";
+    nextBtn.style.display="none"; 
+    progressBar.style.width=((currentQuestion+1)/shuffledQuestions.length)*100+"%";
 }
 
-function updateTimer(){ timeLeft--; timerEl.textContent=`Q Time: ${timeLeft}s`;
-    if(timeLeft<=0){ clearInterval(timerInterval);
+function updateTimer(){ 
+    timeLeft--; 
+    timerEl.textContent=`Q Time: ${timeLeft}s`;
+    if(timeLeft<=0){ 
+        clearInterval(timerInterval);
         answers.push({q:shuffledQuestions[currentQuestion].q, chosen:"Not Answered", correct:shuffledQuestions[currentQuestion].options[shuffledQuestions[currentQuestion].answer]});
         autoNext();
     }
 }
 
-function autoNext(){ currentQuestion++;
-    if(currentQuestion<shuffledQuestions.length) loadQuestion(); else submitTest();
+function autoNext(){ 
+    currentQuestion++;
+    if(currentQuestion<shuffledQuestions.length) loadQuestion(); 
+    else submitTest();
 }
 
 function selectAnswer(selectedBtn,isCorrect){
     clearInterval(timerInterval);
-    const buttons=document.querySelectorAll('.option-btn'); buttons.forEach(btn=>btn.disabled=true);
-    if(isCorrect){ selectedBtn.classList.remove('btn-outline-secondary'); selectedBtn.classList.add('correct'); score++; 
-        answers.push({q:shuffledQuestions[currentQuestion].q, chosen:selectedBtn.textContent, correct:selectedBtn.textContent}); }
-    else { selectedBtn.classList.remove('btn-outline-secondary'); selectedBtn.classList.add('wrong'); 
+    const buttons=document.querySelectorAll('.option-btn'); 
+    buttons.forEach(btn=>btn.disabled=true);
+    if(isCorrect){ 
+        selectedBtn.classList.remove('btn-outline-secondary'); 
+        selectedBtn.classList.add('correct'); 
+        score++; 
+        answers.push({q:shuffledQuestions[currentQuestion].q, chosen:selectedBtn.textContent, correct:selectedBtn.textContent}); 
+    } else { 
+        selectedBtn.classList.remove('btn-outline-secondary'); 
+        selectedBtn.classList.add('wrong'); 
         buttons.forEach(btn=>{ if(btn.textContent===shuffledQuestions[currentQuestion].options[shuffledQuestions[currentQuestion].answer]) btn.classList.add('correct'); });
         answers.push({q:shuffledQuestions[currentQuestion].q, chosen:selectedBtn.textContent, correct:shuffledQuestions[currentQuestion].options[shuffledQuestions[currentQuestion].answer]});
     }
@@ -207,9 +244,11 @@ function submitTest(){
     resultEl.innerHTML=`Your Score: ${score}/${shuffledQuestions.length} (${percent}%)`;
 
     reviewDiv.classList.remove("hidden"); reviewDiv.innerHTML="<h4>Review Answers:</h4>";
-    answers.forEach((a,i)=>{ reviewDiv.innerHTML+=`<p><b>Q${i+1}:</b> ${a.q}<br>Your Answer: ${a.chosen}<br>Correct Answer: ${a.correct}</p><hr>`; });
+    answers.forEach((a,i)=>{
+        let questionLines = doc.splitTextToSize(`Q${i+1}: ${a.q}`, 180);
+        reviewDiv.innerHTML+=`<p><b>Q${i+1}:</b> ${a.q}<br>Your Answer: ${a.chosen}<br>Correct Answer: ${a.correct}</p><hr>`;
+    });
 
-    setTimeout(()=>{ if(document.fullscreenElement) document.exitFullscreen().catch(e=>console.log(e)); },200);
     stopCamera();
     downloadPDF();
 }
@@ -225,20 +264,25 @@ function downloadPDF(){
     doc.text(`Score: ${score}/${shuffledQuestions.length}`,10,40);
     let y=50;
     answers.forEach((a,i)=>{
-        doc.text(`Q${i+1}: ${a.q}`,10,y); y+=5;
-        doc.text(`Your Answer: ${a.chosen}`,10,y); y+=5;
-        doc.text(`Correct Answer: ${a.correct}`,10,y); y+=10;
+        let questionLines = doc.splitTextToSize(`Q${i+1}: ${a.q}`,180);
+        doc.text(questionLines,10,y); y+=questionLines.length*5;
+        let answerLines = doc.splitTextToSize(`Your Answer: ${a.chosen}`,180);
+        doc.text(answerLines,10,y); y+=answerLines.length*5;
+        let correctLines = doc.splitTextToSize(`Correct Answer: ${a.correct}`,180);
+        doc.text(correctLines,10,y); y+=correctLines.length*10;
         if(y>270){ doc.addPage(); y=10; }
     });
     doc.save("Exam_Result.pdf");
 }
 
 // ================== TAB & FULLSCREEN SECURITY =================
-function tabSecurity(){ document.addEventListener("visibilitychange",()=>{
-    if(document.hidden){ warnings++; alert(`⚠ Warning ${warnings}: Do not switch tabs!`);
-        if(warnings>=2){ alert("❌ Test auto-submitted due to multiple violations."); submitTest(); }
-    }
-}); }
+function tabSecurity(){ 
+    document.addEventListener("visibilitychange",()=>{
+        if(document.hidden){ warnings++; alert(`⚠ Warning ${warnings}: Do not switch tabs!`);
+            if(warnings>=2){ alert("❌ Test auto-submitted due to multiple violations."); submitTest(); }
+        }
+    }); 
+}
 
 async function enterFullscreen(){
     let elem=document.documentElement;
@@ -249,25 +293,46 @@ async function enterFullscreen(){
 }
 
 function resumeFullscreen(){ enterFullscreen(); resumeOverlay.style.display="none"; }
-document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&!document.fullscreenElement) resumeOverlay.style.display="flex"; });
-document.addEventListener("fullscreenchange",()=>{ if(!document.fullscreenElement) resumeOverlay.style.display="flex"; });
+document.addEventListener("fullscreenchange",()=>{ resumeOverlay.style.display = document.fullscreenElement ? "none" : "flex"; });
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && document.fullscreenElement) resumeOverlay.style.display="none"; });
 
-// ================== CAMERA & HUMAN DETECTION =================
-async function initCamera(){
+// ================== CAMERA & HUMAN DETECTION + FACE CHECK =================
+async function initCamera(captureFirst=false){
     try{
         const stream = await navigator.mediaDevices.getUserMedia({video:true});
         webcam.srcObject=stream;
         await new Promise(resolve=>{ webcam.onloadedmetadata=()=>{ resolve(); }; });
         cameraStatus.textContent="Camera active";
-        model = await cocoSsd.load(); detectHuman();
-    } catch(err){ cameraStatus.textContent="Camera access denied!"; alert("Camera access is required for exam security."); }
+
+        // Load face API models
+        await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+        await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+        faceModelLoaded = true;
+
+        if(captureFirst){
+            // Capture first face
+            const detection = await faceapi.detectSingleFace(webcam,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if(!detection){ alert("No face detected!"); return; }
+            firstFaceDescriptor = detection.descriptor;
+        }
+    } catch(err){ 
+        cameraStatus.textContent="Camera access denied!"; 
+        alert("Camera access is required for exam security."); 
+    }
 }
 
-async function detectHuman(){
-    const predictions = await model.detect(webcam);
-    const humanDetected = predictions.some(pred=>pred.class==='person');
-    if(!humanDetected){ warnings++; alert(`⚠ Warning ${warnings}: No human detected in camera!`); if(warnings>=2) submitTest(); }
-    requestAnimationFrame(detectHuman);
+async function detectHumanAndFace(){
+    if(!faceModelLoaded) return;
+    const detection = await faceapi.detectSingleFace(webcam,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+    if(!detection){
+        warnings++; alert(`⚠ Warning ${warnings}: No human detected!`);
+        if(warnings>=2) submitTest();
+    } else if(firstFaceDescriptor){
+        const distance = faceapi.euclideanDistance(detection.descriptor, firstFaceDescriptor);
+        if(distance>0.6){ warnings++; alert(`⚠ Warning ${warnings}: Face does not match!`); if(warnings>=2) submitTest(); }
+    }
+    setTimeout(detectHumanAndFace,5000); // check every 5 seconds
 }
 
 function stopCamera(){
@@ -277,6 +342,8 @@ function stopCamera(){
 
 // Disable right-click / refresh
 document.addEventListener("contextmenu",e=>e.preventDefault());
-document.onkeydown=function(e){ if(e.keyCode==123||(e.ctrlKey&&e.shiftKey&&e.keyCode=='I'.charCodeAt(0))) return false;
-if(e.ctrlKey&&(e.keyCode===82||e.keyCode===116)) return false; };
+document.onkeydown=function(e){ 
+    if(e.keyCode==123||(e.ctrlKey&&e.shiftKey&&e.keyCode=='I'.charCodeAt(0))) return false;
+    if(e.ctrlKey&&(e.keyCode===82||e.keyCode===116)) return false;
+};
 window.onbeforeunload=function(){ return "Are you sure you want to leave? Your test will be submitted."; };
