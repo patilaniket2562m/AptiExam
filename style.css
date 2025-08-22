@@ -1,0 +1,14 @@
+
+    body { background: #f0f2f5; font-family: Arial, sans-serif; }
+    .quiz-container { max-width: 750px; margin: 40px auto; background: #fff; border-radius: 12px; box-shadow: 0 6px 16px rgba(0,0,0,0.15); padding: 25px; }
+    .option-btn { width: 100%; margin-bottom: 10px; text-align: left; transition: 0.3s; }
+    .option-btn.correct { background-color: #28a745 !important; color: #fff !important; }
+    .option-btn.wrong { background-color: #dc3545 !important; color: #fff !important; }
+    #nextBtn, #submitBtn { display: none; }
+    .progress { height: 20px; margin-bottom: 15px; }
+    #timer, #globalTimer { font-size: 18px; font-weight: bold; color: #dc3545; }
+    .hidden { display: none; }
+    #reviewAnswers { margin-top: 20px; text-align: left; }
+    #resumeOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); color: #fff; display: none; align-items: center; justify-content: center; z-index: 9999; text-align: center; padding: 20px; }
+    #cameraContainer { margin-top: 15px; text-align:center; }
+    #cameraStatus { font-weight:bold; color:#28a745; }
